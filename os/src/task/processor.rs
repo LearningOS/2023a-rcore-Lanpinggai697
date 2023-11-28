@@ -8,7 +8,11 @@ use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
+use crate::config::{MAX_SYSCALL_NUM,BIG_STRIDE};
+use crate::mm::VirtPageNum;
+
 use alloc::sync::Arc;
 use lazy_static::*;
 
@@ -61,6 +65,11 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.task_start_time==0{
+                task_inner.task_start_time=get_time_us()/1000;
+            }
+            task_inner.stride+=(BIG_STRIDE/task_inner.priority as usize) as u32;
+
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -108,4 +117,32 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// Add syscall count.
+pub fn add_syscall_count(syscall_id:usize){
+    let current_task_tcb=current_task().unwrap();
+    current_task_tcb.inner_exclusive_access().task_syscall_count[syscall_id]+=1;
+}
+
+/// Get current task info.
+pub fn get_current_task_info()->(TaskStatus,[u32;MAX_SYSCALL_NUM],usize){
+    let current_time=get_time_us()/1000;
+    let current_task_tcb=current_task().unwrap();
+    let ret=(current_task_tcb.inner_exclusive_access().task_status,current_task_tcb.inner_exclusive_access().task_syscall_count,current_time-current_task_tcb.inner_exclusive_access().task_start_time);
+    ret
+}
+
+/// Alloc memory for current task
+pub fn mmap(start_vpn:VirtPageNum,end_vpn:VirtPageNum,port:usize)->isize{
+    let current_task_tcb=current_task().unwrap();
+    let ret=current_task_tcb.inner_exclusive_access().memory_set.mmap(start_vpn, end_vpn, port);
+    ret
+}
+
+/// Free memory
+pub fn munmap(start_vpn:VirtPageNum,end_vpn:VirtPageNum)->isize{
+    let current_task_tcb=current_task().unwrap();
+    let ret=current_task_tcb.inner_exclusive_access().memory_set.munmap(start_vpn, end_vpn);
+    ret
 }

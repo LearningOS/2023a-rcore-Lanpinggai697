@@ -300,6 +300,62 @@ impl MemorySet {
             false
         }
     }
+
+
+    /// mmap
+    pub fn mmap(&mut self,start_vpn:VirtPageNum,end_vpn:VirtPageNum,port:usize)->isize{
+        let mut flags=PTEFlags::empty();
+        let mut vpn=start_vpn;
+
+        if port&1==1{
+            flags|=PTEFlags::R;
+        }
+        if port&2==2{
+            flags|=PTEFlags::W;
+        }
+        if port&4==4{
+            flags|=PTEFlags::X;
+        }
+
+        flags|=PTEFlags::U;
+        flags|=PTEFlags::V;
+
+        while vpn!=end_vpn{
+            if let Some(pte)=self.page_table.translate(vpn){
+                if pte.is_valid(){
+                    return -1;
+                }
+            }
+            if let Some(frame)=frame_alloc(){
+                let ppn=frame.ppn;
+                self.page_table.map(vpn, ppn, flags);
+            }
+            else {
+                return -1;
+            }
+            vpn.step();
+        }
+        0
+    }
+
+    /// munmap
+    pub fn munmap(&mut self,start_vpn:VirtPageNum,end_vpn:VirtPageNum)->isize{
+        trace!("kernel: sys_munmap {:?}, {:?}",start_vpn,end_vpn);
+        let mut vpn=start_vpn;
+        while vpn!=end_vpn{
+            if let Some(pte)=self.page_table.translate(vpn){
+                if !pte.is_valid(){
+                    return -1;
+                }
+                self.page_table.unmap(vpn);
+                vpn.step();
+            }
+            else{
+                return -1;
+            }
+        }
+        0
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

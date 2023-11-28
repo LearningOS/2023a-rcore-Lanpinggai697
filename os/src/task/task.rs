@@ -1,7 +1,7 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{TRAP_CONTEXT_BASE,MAX_SYSCALL_NUM};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -68,6 +68,19 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Inherit from lab1
+    /// The task syscall count of each type
+    pub task_syscall_count:[u32;MAX_SYSCALL_NUM],
+
+    /// The task start time
+    pub task_start_time:usize,
+
+    /// Program priority
+    pub priority:u8,
+
+    /// Prodram stride
+    pub stride:u32,
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +131,11 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+
+                    task_syscall_count:[0;MAX_SYSCALL_NUM],
+                    task_start_time:0,
+                    priority:16,
+                    stride:0,
                 })
             },
         };
@@ -191,6 +209,11 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    
+                    task_syscall_count:[0;MAX_SYSCALL_NUM],
+                    task_start_time:0,
+                    priority:16,
+                    stride:0,
                 })
             },
         });

@@ -4,11 +4,12 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str,VirtAddr,VirtPageNum},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        suspend_current_and_run_next, TaskStatus,mmap,munmap,TaskControlBlock,get_current_task_info,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
@@ -119,10 +120,17 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+    
+    let time_kernel_ptr=translated_refmut(current_user_token(), _ts);
+    let us=get_time_us();
+    *time_kernel_ptr=TimeVal{
+        sec:us/1000000,
+        usec:us%1000000,
+    };
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
@@ -130,28 +138,59 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_task_info",
         current_task().unwrap().pid.0
     );
-    -1
+    let task_info_kernel_ptr=translated_refmut(current_user_token(),_ti);
+    let (status,syscall_times,time)=get_current_task_info();
+    *task_info_kernel_ptr=TaskInfo{
+        status,
+        syscall_times,
+        time,
+    };
+    0
 }
 
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_mmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let start_va:VirtAddr=_start.into();
+    if (!start_va.aligned())||(_port&7==0)||(_port>7){
+        return -1;
+    }
+
+    if _len==0{
+        return 0;
+    }
+    let end_va:VirtAddr=(_start+_len).into();
+    let start_vpn:VirtPageNum=start_va.into();
+    let end_vpn:VirtPageNum=end_va.ceil();
+
+    mmap(start_vpn, end_vpn,_port)
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_munmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let start_va:VirtAddr=_start.into();
+    if !start_va.aligned(){
+        return -1;
+    }
+
+    if _len==0{
+        return 0;
+    }
+    let end_va:VirtAddr=(_start+_len).into();
+    let start_vpn:VirtPageNum=start_va.into();
+    let end_vpn:VirtPageNum=end_va.ceil();
+
+    munmap(start_vpn, end_vpn)
 }
 
 /// change data segment size
@@ -168,17 +207,41 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
+    let token=current_user_token();
+    let path=translated_str(token, _path);
+    if let Some(data)=get_app_data_by_name(path.as_str()){
+        let current_task=current_task().unwrap();
+        let mut parent_inner=current_task.inner_exclusive_access();
+
+        let new_tcb=Arc::new(TaskControlBlock::new(data));
+        let mut inner=new_tcb.inner_exclusive_access();
+
+        inner.parent=Some(Arc::downgrade(&current_task));
+        parent_inner.children.push(new_tcb.clone());
+        drop(inner);
+
+        let pid=new_tcb.pid.0 as isize;
+
+        add_task(new_tcb);
+        return pid;
+    }
     -1
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
+    if _prio>=2{
+        let current_task=current_task().unwrap();
+        let mut inner=current_task.inner_exclusive_access();
+        inner.priority=_prio as u8;
+        return _prio;
+    }
     -1
 }
