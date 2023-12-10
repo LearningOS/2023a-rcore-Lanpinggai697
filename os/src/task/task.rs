@@ -71,6 +71,16 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Inherit from lab1
+    /// The task start time
+    pub task_start_time:usize,
+
+    /// Program priority
+    pub priority:u8,
+
+    /// Program stride
+    pub stride:u32,
 }
 
 impl TaskControlBlockInner {
@@ -135,6 +145,10 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+
+                    task_start_time:0,
+                    priority:16,
+                    stride:0,
                 })
             },
         };
@@ -216,6 +230,10 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+
+                    task_start_time:0,
+                    priority:16,
+                    stride:0,
                 })
             },
         });
